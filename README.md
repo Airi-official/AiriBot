@@ -62,4 +62,4 @@ Runtime dependencies are listed in [`requirements.txt`](requirements.txt). Insta
 
 ## Project notes
 
-See [`note.md`](note.md) for the latest project update. The developer's original note is also available at [`notr_from_dev/Note.md`](notr_from_dev/Note.md).
+See [`note.md`](note.md) for the latest project update. The developer's original note is also available at [`note.md`](note.md).
