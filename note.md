@@ -1,11 +1,20 @@
-# Project update
+# Project update · AiriBot
 
-- **Version:** Beta (the repository does not currently declare a numeric release version).
+- **Version:** Beta (no numeric release version is declared).
 - **Date:** 18 พฤศจิกายน พ.ศ. 2569 (18 November 2026).
-- **Time:** Not specified; an exact local time was not available when this update was prepared.
+- **Time:** Not recorded; the commit timestamp is the authoritative update time.
 
-## Changes
+## Consolidated feature update
 
-- Replaced the placeholder README with project overview, features, setup instructions, configuration, and example commands.
-- Documented Python 3.10+ and dependency installation via `requirements.txt`.
-- Added a reminder to configure the required Discord intents and keep the bot token in a local `.env` file.
+- Reworked `main.py` configuration parsing, extension startup, lifecycle/status events, guild join logging, and command error responses.
+- Added `cogs/admin.py` with dynamic help, bot diagnostics, extension listing/reloading, command synchronization, and graceful shutdown. Administrative controls are owner-only.
+- Improved `core/console.py` with a reusable Rich startup dashboard and terminal-safe output.
+- Improved `core/notify.py` with reusable, bounded Components V2 status cards and safe log-channel fallback behavior.
+- Expanded `README.md` with setup, environment configuration, intents, security guidance, and command examples.
+
+## Stability and configuration
+
+- Install dependencies using `python -m pip install -r requirements.txt`.
+- Configure `DISCORD_TOKEN` locally in `.env`; do not commit secrets.
+- Use `SYNC_COMMANDS=false` to disable automatic application-command syncing at startup.
+- New bot-status metrics use the existing `psutil` dependency; no additional package was introduced.

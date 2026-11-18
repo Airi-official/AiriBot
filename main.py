@@ -1,8 +1,13 @@
+"""AiriBot entry point, configuration, lifecycle, and event handling."""
+
+from __future__ import annotations
+
 import asyncio
 import os
-import time
 import platform
-import psutil
+import time
+from typing import Optional
+
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -10,157 +15,175 @@ from dotenv import load_dotenv
 from core import console
 from core.notify import send_status
 
-# ─────────────────────────────────────────
-#  Configuration & Environment Setup
-# ─────────────────────────────────────────
 load_dotenv()
 
-TOKEN          = os.getenv("DISCORD_TOKEN")
-OWNER_ID       = int(os.getenv("OWNER_ID", "0"))
-LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID", "0")) or None
-PREFIX         = os.getenv("PREFIX", "$")
 
-if not TOKEN:
-    raise SystemExit(
-        "❌ CRITICAL ERROR: DISCORD_TOKEN is not set in the .env file. "
-        "Please configure your environment variables before running AiriBot."
-    )
+def _env_int(name: str, default: int = 0) -> int:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise SystemExit(f"Configuration error: {name} must be an integer.") from exc
+    if parsed < 0:
+        raise SystemExit(f"Configuration error: {name} cannot be negative.")
+    return parsed
 
-# ─────────────────────────────────────────
-#  Bot Initialization with Advanced Intents
-# ─────────────────────────────────────────
+
+TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
+OWNER_ID = _env_int("OWNER_ID")
+LOG_CHANNEL_ID = _env_int("LOG_CHANNEL_ID") or None
+PREFIX = os.getenv("PREFIX", "$" ).strip() or "$"
+SYNC_COMMANDS = os.getenv("SYNC_COMMANDS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.voice_states = True
-intents.guilds = True
+
 
 class AiriBot(commands.Bot):
-    def __init__(self):
+    """Bot class with centralized extension loading and lifecycle metadata."""
+
+    def __init__(self) -> None:
         super().__init__(
             command_prefix=commands.when_mentioned_or(PREFIX),
             intents=intents,
-            owner_id=OWNER_ID,
-            help_command=None, # We use a custom interactive help system
+            owner_id=OWNER_ID or None,
+            help_command=None,
+            case_insensitive=True,
+            strip_after_prefix=True,
         )
-        self.boot_time = None
+        self.boot_time: Optional[float] = None
+        self.started_at: Optional[discord.utils.Timestamp] = None
         self.log_channel_id = LOG_CHANNEL_ID
+        self.configured_prefix = PREFIX
+        self.extensions_to_load = ("cogs.utility", "cogs.admin")
+        self._ready_announced = False
 
     async def setup_hook(self) -> None:
-        """Load cogs and synchronize global/guild slash commands."""
         await self.load_extensions()
-        
-        # Sync application slash commands with Discord API
-        try:
-            synced = await self.tree.sync()
-            console.ok(f"Synced {len(synced)} slash command(s).")
-        except Exception as e:
-            console.error(f"Failed to sync slash commands: {e}")
+        if SYNC_COMMANDS:
+            try:
+                synced = await self.tree.sync()
+                console.ok(f"Synchronized {len(synced)} application command(s).")
+            except discord.HTTPException as exc:
+                console.error(f"Application command sync failed: {exc}")
 
     async def load_extensions(self) -> None:
-        console.section("Loading AiriBot Modules (Cogs)")
-        initial_extensions = [
-            "cogs.utility",
-            # "cogs.moderation",
-            # "cogs.music",
-        ]
-        for ext in initial_extensions:
+        console.section("Loading AiriBot extensions")
+        for extension in self.extensions_to_load:
             try:
-                await self.load_extension(ext)
-                console.ok(f"Loaded extension: {ext}")
-            except Exception as e:
-                console.error(f"Failed to load extension {ext}: {e}")
+                await self.load_extension(extension)
+                console.ok(f"Loaded {extension}")
+            except (commands.ExtensionError, ImportError) as exc:
+                console.error(f"Could not load {extension}: {exc}")
+
 
 bot = AiriBot()
 
-# ─────────────────────────────────────────
-#  Event Listeners
-# ─────────────────────────────────────────
+
 @bot.event
 async def on_ready() -> None:
-    bot.boot_time = time.time()
-    
-    console.clear_screen()
+    if bot.boot_time is None:
+        bot.boot_time = time.monotonic()
+        bot.started_at = discord.utils.utcnow()
     console.banner(
         bot_name=str(bot.user),
-        bot_id=bot.user.id,
+        bot_id=bot.user.id if bot.user else 0,
         prefix=PREFIX,
         owner_id=OWNER_ID,
         guild_count=len(bot.guilds),
+        extra={"Python": platform.python_version(), "discord.py": discord.__version__},
     )
-
-    # Rich Presence with Dynamic Status Rotation or Activity
-    await bot.change_presence(
-        activity=discord.Activity(
-            type=discord.ActivityType.streaming,
-            name=f"{PREFIX}help | Airi Development",
-            url="https://twitch.tv/airi"
+    if not bot._ready_announced:
+        bot._ready_announced = True
+        await bot.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.listening,
+                name=f"{PREFIX}help | {len(bot.guilds)} servers",
+            )
         )
-    )
-
-    if bot.log_channel_id:
         await send_status(
             bot,
-            title="✨ AiriBot Online & Operational",
+            title="AiriBot is online",
             lines=[
-                f"• Logged in as: **{bot.user}** (`{bot.user.id}`)",
-                f"• Active Guilds: **{len(bot.guilds)}** servers",
-                f"• Command Prefix: `{PREFIX}`",
-                f"• Python Version: `{platform.python_version()}`",
-                f"• Discord.py: `{discord.__version__}`"
+                f"Signed in as **{bot.user}** (`{bot.user.id}`)",
+                f"Servers: **{len(bot.guilds)}**",
+                f"Prefix: `{PREFIX}` (or mention the bot)",
+                f"Python: `{platform.python_version()}` · discord.py: `{discord.__version__}`",
             ],
             kind="ok",
         )
 
+
 @bot.event
 async def on_command(ctx: commands.Context) -> None:
     location = f"#{ctx.channel}" if ctx.guild else "Direct Message"
-    console.command_used(str(ctx.author), ctx.command.qualified_name, location)
+    console.command_used(str(ctx.author), ctx.command.qualified_name if ctx.command else "unknown", location)
+
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError) -> None:
+    error = getattr(error, " original", error)
     if isinstance(error, commands.CommandNotFound):
         return
-    
-    # Styled Error Embed for better user experience
-    error_embed = discord.Embed(
-        title="⚠️ Command Execution Error",
-        color=discord.Color.brand_red(),
-        timestamp=discord.utils.utcnow()
-    )
-    
-    if isinstance(error, commands.MissingRequiredArgument):
-        error_embed.description = f"Missing required argument: `{error.param.name}`\nPlease check usage instructions."
-    elif isinstance(error, commands.NotOwner):
-        error_embed.description = "🚫 This command is strictly restricted to the bot owner."
-    elif isinstance(error, commands.MissingPermissions):
-        error_embed.description = "🚫 You do not have the required permissions to execute this command."
-    elif isinstance(error, commands.CommandOnCooldown):
-        error_embed.description = f"⏱️ Command on cooldown. Please retry in `{error.retry_after:.1f}` seconds."
+
+    if isinstance(error, commands.CommandOnCooldown):
+        message = f"Please try again in **{error.retry_after:.1f} seconds**."
+    elif isinstance(error, commands.MissingRequiredArgument):
+        message = f"Missing argument: `{error.param.name}`. Use `{PREFIX}help` for command details."
+    elif isinstance(error, commands.BadArgument):
+        message = f"I couldn't parse that argument. Use `{PREFIX}help` for command details."
+    elif isinstance(error, (commands.NotOwner, commands.MissingPermissions, commands.BotMissingPermissions)):
+        message = "You or the bot do not have permission to run that command."
+    elif isinstance(error, commands.NoPrivateMessage):
+        message = "This command can only be used in a server."
+    elif isinstance(error, commands.DisabledCommand):
+        message = "That command is currently unavailable."
     else:
-        error_embed.description = f"An unexpected error occurred:\n```py\n{str(error)[:500]}\n```"
-        console.error(f"Command error in {ctx.command}: {error}")
+        console.error(f"Command {getattr(ctx.command, 'qualified_name', 'unknown')} failed: {error!r}")
+        message = "Something went wrong while running that command. The issue has been logged."
 
     try:
-        await ctx.reply(embed=error_embed, ephemeral=True)
+        await ctx.reply(view=__import__("core.notify", fromlist=["StatusLayout"]).StatusLayout(
+            "Command help", [message], "error" if not isinstance(error, commands.CommandOnCooldown) else "warn"
+        ), mention_author=False)
     except discord.HTTPException:
-        await ctx.send(embed=error_embed)
+        console.warn("Could not send a command error response (missing access or permissions).")
+
 
 @bot.event
 async def on_disconnect() -> None:
-    console.warn("⚠️ Disconnected from Discord Gateway — attempting automatic reconnection...")
+    console.warn("Disconnected from Discord; the client will attempt to reconnect.")
 
-# ─────────────────────────────────────────
-#  Main Entry Point
-# ─────────────────────────────────────────
+
+@bot.event
+async def on_guild_join(guild: discord.Guild) -> None:
+    console.info(f"Joined server {guild.name} ({guild.id}); now in {len(bot.guilds)} servers.")
+    await send_status(bot, "Joined a server", [f"**{guild.name}** (`{guild.id}`)", f"Server count: {len(bot.guilds)}"], "info")
+
+
+@bot.event
+async def on_guild_remove(guild: discord.Guild) -> None:
+    console.info(f"Left server {guild.name} ({guild.id}); now in {len(bot.guilds)} servers.")
+
+
 async def main() -> None:
+    if not TOKEN:
+        raise SystemExit("DISCORD_TOKEN is missing. Add it to your local .env file before starting AiriBot.")
     console.clear_screen()
-    console.section(f"Launching AiriBot • All in one (Prefix: {PREFIX})")
-    async with bot:
+    console.section(f"Starting AiriBot · prefix {PREFIX}")
+    try:
         await bot.start(TOKEN)
+    finally:
+        if not bot.is_closed():
+            await bot.close()
+
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        console.warn("🛑 Shutdown requested manually via Ctrl+C.")
+        console.warn("Shutdown requested from the terminal.")

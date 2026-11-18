@@ -1,42 +1,47 @@
 # AiriBot
 
-**AiriBot** is a beta Discord bot written in Python. It includes utility commands, interactive Components V2 replies, generated image cards, and styled terminal status output.
+AiriBot is a configurable, prefix-based Discord bot built with Python and discord.py. It combines everyday server utilities with image cards, interactive Components V2 layouts, owner controls, and a live diagnostic dashboard.
 
-> **Project version:** Beta — a numeric release version has not yet been declared.
+> **Release:** Beta (no numbered release has been published yet).
 
-## Features
+## Highlights
 
-- Utility commands for bot, server, member, channel, and role information.
-- Image cards for latency, bot statistics, and color swatches.
-- Interactive polls, timers, reminders, AFK status, and message sniping.
-- Styled startup and status messages.
+- **Command center:** browse commands and inspect usage with `$help` and `$help <command>`.
+- **Bot diagnostics:** `$botstatus` shows uptime, gateway latency, cached server/member totals, and process CPU/RAM.
+- **Server and profile utilities:** inspect members, roles, channels, servers, avatars, and colors.
+- **Interactive tools:** polls, countdown timers, reminders, AFK status, and deleted/edited message snapshots.
+- **Visual output:** generated latency, bot-stat, and color cards, with reusable Components V2 status panels.
+- **Owner controls:** list/reload extensions, synchronize application commands, and gracefully shut down the process.
+- **Operational visibility:** richer startup dashboard, log-channel notifications, and clearer command error handling.
 
 ## Requirements
 
 - Python 3.10 or newer
 - A Discord bot application and token
+- Message Content and Server Members intents enabled in the Discord Developer Portal
 
 ## Setup
 
-1. Clone the repository and enter its directory.
-2. Install dependencies:
+1. Clone the repository and enter the project directory.
+2. Install runtime dependencies:
 
    ```bash
    python -m pip install -r requirements.txt
    ```
 
-3. Create a `.env` file in the project root:
+3. Create a `.env` file in the project root (never commit this file):
 
    ```dotenv
    DISCORD_TOKEN=your-discord-bot-token
    OWNER_ID=your-discord-user-id
    LOG_CHANNEL_ID=your-log-channel-id
    PREFIX=$
+   SYNC_COMMANDS=true
    ```
 
-   `DISCORD_TOKEN` is required. `OWNER_ID`, `LOG_CHANNEL_ID`, and `PREFIX` have defaults in the bot configuration.
+   `DISCORD_TOKEN` is required. `OWNER_ID` and `LOG_CHANNEL_ID` may be left unset; the prefix defaults to `$`. Set `SYNC_COMMANDS=false` to skip automatic application-command synchronization at startup.
 
-4. In the Discord Developer Portal, enable the **Message Content Intent** and **Server Members Intent** for the bot if needed. Invite the bot with the permissions required for the commands you plan to use.
+4. Invite the bot with only the permissions needed by the enabled commands. Commands that manage server settings or messages may need additional Discord permissions.
 5. Start the bot:
 
    ```bash
@@ -45,21 +50,23 @@
 
 ## Commands
 
-The default command prefix is `$` (or mention the bot). Examples include:
+The default prefix is `$`; commands can also be called by mentioning the bot. Use `$help` for the live command list and `$help <command>` for detailed usage.
 
-- `$ping`, `$botinfo`, `$uptime`
-- `$avatar`, `$userinfo`, `$serverinfo`, `$channelinfo`, `$roleinfo`
-- `$color blue`, `$calc 12 * 3`, `$choose tea, coffee`
-- `$poll Lunch? | Pizza | Sushi`
-- `$timer 5m Break`, `$remindme 1h Check in`
-- `$afk`, `$snipe`, `$editsnipe`
+Examples:
 
-Some commands require a server context. Check the command implementation and your bot's permissions/intents for details.
+| Command | Purpose |
+| --- | --- |
+| `$ping`, `$botinfo`, `$botstatus`, `$uptime` | Latency, bot information, diagnostics, and uptime |
+| `$avatar [member]`, `$userinfo [member]`, `$serverinfo`, `$membercount` | User and server information |
+| `$channelinfo [channel]`, `$roleinfo <role>`, `$servericon` | Channel, role, and server-icon details |
+| `$color blue`, `$calc 12 * 3`, `$choose tea, coffee`, `$8ball Will it work?` | Visual color card, arithmetic, and lightweight fun commands |
+| `$poll Lunch? | Pizza | Sushi` | Interactive poll with up to four choices |
+| `$timer 5m Break`, `$remindme 1h Check in`, `$reminders` | Timers and reminders |
+| `$afk [reason]`, `$snipe`, `$editsnipe` | AFK status and recent message snapshots |
+| `$extensions`, `$reload utility`, `$synccommands`, `$shutdown` | Owner-only bot administration |
 
-## Dependencies
+Owner-only commands use the configured `OWNER_ID` or the Discord application's owner. Message snapshot commands only retain recent data in memory and do not provide persistent moderation logs.
 
-Runtime dependencies are listed in [`requirements.txt`](requirements.txt). Install or update them with `python -m pip install -r requirements.txt`.
+## Dependencies and project notes
 
-## Project notes
-
-See [`note.md`](note.md) for the latest project update. The developer's original note is also available at [`note.md`](note.md).
+Install/update dependencies with `python -m pip install -r requirements.txt`. See [`note.md`](note.md) for the latest project changes and release/date information.
