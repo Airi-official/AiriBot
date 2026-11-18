@@ -6,14 +6,13 @@ import asyncio
 import os
 import platform
 import time
-from typing import Optional
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
 from core import console
-from core.notify import send_status
+from core.notify import StatusLayout, send_status
 
 load_dotenv()
 
@@ -23,18 +22,18 @@ def _env_int(name: str, default: int = 0) -> int:
     if value in (None, ""):
         return default
     try:
-        parsed = int(value)
+        result = int(value)
     except ValueError as exc:
         raise SystemExit(f"Configuration error: {name} must be an integer.") from exc
-    if parsed < 0:
+    if result < 0:
         raise SystemExit(f"Configuration error: {name} cannot be negative.")
-    return parsed
+    return result
 
 
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 OWNER_ID = _env_int("OWNER_ID")
 LOG_CHANNEL_ID = _env_int("LOG_CHANNEL_ID") or None
-PREFIX = os.getenv("PREFIX", "$" ).strip() or "$"
+PREFIX = os.getenv("PREFIX", "$").strip() or "$"
 SYNC_COMMANDS = os.getenv("SYNC_COMMANDS", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 intents = discord.Intents.default()
@@ -44,7 +43,7 @@ intents.voice_states = True
 
 
 class AiriBot(commands.Bot):
-    """Bot class with centralized extension loading and lifecycle metadata."""
+    """Bot with centralized configuration and extension lifecycle."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -55,30 +54,25 @@ class AiriBot(commands.Bot):
             case_insensitive=True,
             strip_after_prefix=True,
         )
-        self.boot_time: Optional[float] = None
-        self.started_at: Optional[discord.utils.Timestamp] = None
+        self.boot_time: float | None = None
         self.log_channel_id = LOG_CHANNEL_ID
         self.configured_prefix = PREFIX
         self.extensions_to_load = ("cogs.utility", "cogs.admin")
         self._ready_announced = False
 
     async def setup_hook(self) -> None:
-        await self.load_extensions()
+        for extension in self.extensions_to_load:
+            try:
+                await self.load_extension(extension)
+                console.ok(f"Loaded extension {extension}")
+            except (commands.ExtensionError, ImportError) as exc:
+                console.error(f"Could not load {extension}: {exc}")
         if SYNC_COMMANDS:
             try:
                 synced = await self.tree.sync()
                 console.ok(f"Synchronized {len(synced)} application command(s).")
             except discord.HTTPException as exc:
                 console.error(f"Application command sync failed: {exc}")
-
-    async def load_extensions(self) -> None:
-        console.section("Loading AiriBot extensions")
-        for extension in self.extensions_to_load:
-            try:
-                await self.load_extension(extension)
-                console.ok(f"Loaded {extension}")
-            except (commands.ExtensionError, ImportError) as exc:
-                console.error(f"Could not load {extension}: {exc}")
 
 
 bot = AiriBot()
@@ -88,7 +82,6 @@ bot = AiriBot()
 async def on_ready() -> None:
     if bot.boot_time is None:
         bot.boot_time = time.monotonic()
-        bot.started_at = discord.utils.utcnow()
     console.banner(
         bot_name=str(bot.user),
         bot_id=bot.user.id if bot.user else 0,
@@ -99,23 +92,16 @@ async def on_ready() -> None:
     )
     if not bot._ready_announced:
         bot._ready_announced = True
-        await bot.change_presence(
-            activity=discord.Activity(
-                type=discord.ActivityType.listening,
-                name=f"{PREFIX}help | {len(bot.guilds)} servers",
-            )
-        )
-        await send_status(
-            bot,
-            title="AiriBot is online",
-            lines=[
-                f"Signed in as **{bot.user}** (`{bot.user.id}`)",
-                f"Servers: **{len(bot.guilds)}**",
-                f"Prefix: `{PREFIX}` (or mention the bot)",
-                f"Python: `{platform.python_version()}` · discord.py: `{discord.__version__}`",
-            ],
-            kind="ok",
-        )
+        await bot.change_presence(activity=discord.Activity(
+            type=discord.ActivityType.listening,
+            name=f"{PREFIX}help | {len(bot.guilds)} servers",
+        ))
+        await send_status(bot, "AiriBot is online", [
+            f"Signed in as **{bot.user}** (`{bot.user.id}`)",
+            f"Servers: **{len(bot.guilds)}**",
+            f"Prefix: `{PREFIX}` (or mention the bot)",
+            f"Python: `{platform.python_version()}` · discord.py: `{discord.__version__}`",
+        ], "ok")
 
 
 @bot.event
@@ -126,32 +112,28 @@ async def on_command(ctx: commands.Context) -> None:
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError) -> None:
-    error = getattr(error, " original", error)
+    error = getattr(error, "original", error)
     if isinstance(error, commands.CommandNotFound):
         return
-
     if isinstance(error, commands.CommandOnCooldown):
-        message = f"Please try again in **{error.retry_after:.1f} seconds**."
+        message, kind = f"Please try again in **{error.retry_after:.1f} seconds**.", "warn"
     elif isinstance(error, commands.MissingRequiredArgument):
-        message = f"Missing argument: `{error.param.name}`. Use `{PREFIX}help` for command details."
+        message, kind = f"Missing argument: `{error.param.name}`. Use `{PREFIX}help` for details.", "warn"
     elif isinstance(error, commands.BadArgument):
-        message = f"I couldn't parse that argument. Use `{PREFIX}help` for command details."
+        message, kind = f"I couldn't parse that argument. Use `{PREFIX}help` for details.", "warn"
     elif isinstance(error, (commands.NotOwner, commands.MissingPermissions, commands.BotMissingPermissions)):
-        message = "You or the bot do not have permission to run that command."
+        message, kind = "You or the bot do not have permission to run that command.", "error"
     elif isinstance(error, commands.NoPrivateMessage):
-        message = "This command can only be used in a server."
+        message, kind = "This command can only be used in a server.", "warn"
     elif isinstance(error, commands.DisabledCommand):
-        message = "That command is currently unavailable."
+        message, kind = "That command is currently unavailable.", "warn"
     else:
         console.error(f"Command {getattr(ctx.command, 'qualified_name', 'unknown')} failed: {error!r}")
-        message = "Something went wrong while running that command. The issue has been logged."
-
+        message, kind = "Something went wrong while running that command. The issue has been logged.", "error"
     try:
-        await ctx.reply(view=__import__("core.notify", fromlist=["StatusLayout"]).StatusLayout(
-            "Command help", [message], "error" if not isinstance(error, commands.CommandOnCooldown) else "warn"
-        ), mention_author=False)
+        await ctx.reply(view=StatusLayout("Command response", [message], kind), mention_author=False)
     except discord.HTTPException:
-        console.warn("Could not send a command error response (missing access or permissions).")
+        console.warn("Could not send a command error response.")
 
 
 @bot.event
@@ -175,11 +157,8 @@ async def main() -> None:
         raise SystemExit("DISCORD_TOKEN is missing. Add it to your local .env file before starting AiriBot.")
     console.clear_screen()
     console.section(f"Starting AiriBot · prefix {PREFIX}")
-    try:
+    async with bot:
         await bot.start(TOKEN)
-    finally:
-        if not bot.is_closed():
-            await bot.close()
 
 
 if __name__ == "__main__":
