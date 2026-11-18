@@ -1,0 +1,5 @@
+discord.py>=2.6.0
+Pillow
+psutil
+python-dotenv
+rich
